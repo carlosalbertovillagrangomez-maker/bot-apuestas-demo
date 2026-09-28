@@ -96,6 +96,21 @@ type PlayerTeamStats = {
   groups: PlayerGroup[];
 };
 
+type SeasonStatsTeam = {
+  teamId: string;
+  categories: Array<{
+    name?: string;
+    displayName?: string;
+    stats: Array<{
+      name?: string;
+      displayName?: string;
+      abbreviation?: string;
+      displayValue?: string | number | null;
+      rankDisplayValue?: string | null;
+    }>;
+  }>;
+};
+
 type GameDetail = {
   gameInfo?: {
     venue?: {
@@ -111,6 +126,7 @@ type GameDetail = {
   };
   teamStats?: TeamStat[];
   playerStats?: PlayerTeamStats[];
+  seasonTeamStats?: SeasonStatsTeam[];
   injuries?: unknown[];
   winprobability?: Array<{ homeWinPercentage?: number }>;
   error?: string;
@@ -374,6 +390,92 @@ function TeamStatsTable({ stats }: { stats: TeamStat[] }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function SeasonStats({
+  teams,
+  event,
+}: {
+  teams: SeasonStatsTeam[];
+  event: NflEvent;
+}) {
+  if (!teams.length) {
+    return (
+      <p className="text-sm text-slate-500">
+        No fue posible cargar las estadísticas acumuladas de temporada.
+      </p>
+    );
+  }
+
+  function teamForId(teamId: string) {
+    return competitionOf(event)?.competitors?.find(
+      (competitor) => competitor.team?.id === teamId,
+    )?.team;
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      {teams.map((teamStats) => {
+        const team = teamForId(teamStats.teamId);
+
+        return (
+          <div
+            key={teamStats.teamId}
+            className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <TeamLogo team={team} />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-400">
+                  Temporada
+                </p>
+                <h4 className="font-black">
+                  {team?.displayName ?? "Equipo NFL"}
+                </h4>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {teamStats.categories.map((category, categoryIndex) => (
+                <details
+                  key={(category.name ?? "category") + "-" + categoryIndex}
+                  className="group rounded-xl border border-white/8 bg-black/15"
+                  open={categoryIndex === 0}
+                >
+                  <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-bold text-slate-300">
+                    {category.displayName ?? category.name ?? "Estadísticas"}
+                  </summary>
+                  <div className="border-t border-white/5 px-3 py-2">
+                    <div className="divide-y divide-white/5">
+                      {category.stats.map((stat, statIndex) => (
+                        <div
+                          key={(stat.name ?? "stat") + "-" + statIndex}
+                          className="grid grid-cols-[1fr_auto] gap-3 py-2 text-xs"
+                        >
+                          <span className="text-slate-500">
+                            {stat.displayName ??
+                              stat.abbreviation ??
+                              stat.name ??
+                              "Dato"}
+                          </span>
+                          <span className="text-right font-bold text-slate-200">
+                            {String(stat.displayValue ?? "—")}
+                            {stat.rankDisplayValue
+                              ? " · " + stat.rankDisplayValue
+                              : ""}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </details>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -877,7 +979,19 @@ export default function Home() {
                   </div>
 
                   <div>
-                    <h3 className="section-title">Estadísticas de equipo</h3>
+                    <h3 className="section-title">
+                      Estadísticas acumuladas de temporada
+                    </h3>
+                    <SeasonStats
+                      teams={selectedDetail.seasonTeamStats ?? []}
+                      event={selectedEvent}
+                    />
+                  </div>
+
+                  <div>
+                    <h3 className="section-title">
+                      Box score / estadísticas del partido
+                    </h3>
                     <TeamStatsTable stats={selectedDetail.teamStats ?? []} />
                   </div>
 
