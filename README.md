@@ -13,7 +13,8 @@ Aplicación Next.js enfocada exclusivamente en football americano NFL.
 - Moneyline, spread y total desde The Odds API.
 - Cuota disponible y consumo de créditos de The Odds API.
 - Box score de equipo.
-- Estadísticas individuales de jugadores cuando ESPN las publica.
+- Líderes de temporada por pase, carrera, recepción, sacks y tackles cuando ESPN los publica.
+- Estadísticas individuales del box score cuando el partido ya dispone de ellas.
 - Reporte de lesiones disponible en el feed del partido.
 - Probabilidad en vivo cuando existe en el detalle de ESPN.
 - Análisis con Gemini basado en los datos reales que recibe la app.
@@ -64,7 +65,7 @@ Después edita `.env.local`:
 ```env
 ODDS_API_KEY=tu_clave_the_odds_api
 GEMINI_API_KEY=tu_clave_gemini
-GEMINI_MODEL=gemini-2.5-pro
+GEMINI_MODEL=gemini-3.1-pro-preview
 ```
 
 La app todavía reconoce `NEXT_PUBLIC_GEMINI_KEY` como compatibilidad con la versión anterior, pero se recomienda usar `GEMINI_API_KEY` para mantener la llave del lado del servidor.
