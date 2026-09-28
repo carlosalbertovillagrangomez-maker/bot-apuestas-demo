@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Team = {
   id?: string;
@@ -111,6 +111,30 @@ type SeasonStatsTeam = {
   }>;
 };
 
+type LeaderAthlete = {
+  athlete?: {
+    id?: string;
+    displayName?: string;
+    position?: { abbreviation?: string };
+  };
+  displayValue?: string;
+  value?: number;
+};
+
+type LeaderTeam = {
+  team?: Team;
+  leaders?: Array<{
+    name?: string;
+    displayName?: string;
+    leaders?: LeaderAthlete[];
+  }>;
+};
+
+type MatchupPredictor = {
+  homeTeam?: { id?: string; gameProjection?: string };
+  awayTeam?: { id?: string; gameProjection?: string };
+};
+
 type GameDetail = {
   gameInfo?: {
     venue?: {
@@ -127,8 +151,10 @@ type GameDetail = {
   teamStats?: TeamStat[];
   playerStats?: PlayerTeamStats[];
   seasonTeamStats?: SeasonStatsTeam[];
+  leaders?: LeaderTeam[];
   injuries?: unknown[];
   winprobability?: Array<{ homeWinPercentage?: number }>;
+  predictor?: MatchupPredictor | null;
   error?: string;
 };
 
@@ -352,19 +378,22 @@ function OddsStrip({
 }
 
 function TeamStatsTable({ stats }: { stats: TeamStat[] }) {
-  if (stats.length < 2) {
+  if (
+    stats.length < 2 ||
+    !stats[0]?.statistics?.length ||
+    !stats[1]?.statistics?.length
+  ) {
     return (
       <p className="text-sm text-slate-500">
-        El box score aún no publica estadísticas de equipo para este partido.
+        El box score del partido todavía no está disponible. Para partidos
+        futuros usa las estadísticas acumuladas de temporada y los líderes
+        pregame que aparecen arriba.
       </p>
     );
   }
 
   const left = stats[0];
   const right = stats[1];
-  const rightMap = new Map(
-    right.statistics.map((stat) => [stat.name ?? stat.label, stat.displayValue]),
-  );
 
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10">
@@ -374,18 +403,19 @@ function TeamStatsTable({ stats }: { stats: TeamStat[] }) {
         <span>{right.team.abbreviation ?? "B"}</span>
       </div>
       <div className="divide-y divide-white/5">
-        {left.statistics.map((stat) => {
-          const key = stat.name ?? stat.label;
+        {left.statistics.map((stat, index) => {
+          const rightStat = right.statistics[index];
+
           return (
             <div
-              key={String(key)}
+              key={(stat.name ?? stat.label ?? "stat") + "-" + index}
               className="grid grid-cols-[1fr_1.4fr_1fr] items-center px-4 py-2.5 text-center text-sm"
             >
               <strong>{String(stat.displayValue ?? "—")}</strong>
               <span className="text-xs text-slate-400">
                 {stat.label ?? stat.name ?? "Dato"}
               </span>
-              <strong>{String(rightMap.get(key) ?? "—")}</strong>
+              <strong>{String(rightStat?.displayValue ?? "—")}</strong>
             </div>
           );
         })}
@@ -480,6 +510,73 @@ function SeasonStats({
   );
 }
 
+function SeasonLeaders({ leaders }: { leaders: LeaderTeam[] }) {
+  if (!leaders.length) {
+    return (
+      <p className="text-sm text-slate-500">
+        ESPN todavía no publica líderes de temporada para este matchup.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      {leaders.map((teamEntry, teamIndex) => (
+        <div
+          key={teamEntry.team?.id ?? teamEntry.team?.abbreviation ?? teamIndex}
+          className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"
+        >
+          <div className="mb-4 flex items-center gap-3">
+            <TeamLogo team={teamEntry.team} />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-400">
+                Líderes de temporada
+              </p>
+              <h4 className="font-black">
+                {teamEntry.team?.displayName ??
+                  teamEntry.team?.abbreviation ??
+                  "Equipo NFL"}
+              </h4>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {(teamEntry.leaders ?? []).map((category, categoryIndex) => {
+              const leader = category.leaders?.[0];
+
+              return (
+                <div
+                  key={(category.name ?? "leader") + "-" + categoryIndex}
+                  className="rounded-xl bg-black/20 px-3 py-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                        {category.displayName ?? category.name ?? "Categoría"}
+                      </p>
+                      <strong className="mt-1 block text-sm">
+                        {leader?.athlete?.displayName ?? "Sin líder publicado"}
+                      </strong>
+                    </div>
+                    {leader?.athlete?.position?.abbreviation && (
+                      <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-bold text-slate-400">
+                        {leader.athlete.position.abbreviation}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">
+                    {leader?.displayValue ?? "Dato no disponible"}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PlayerStats({ teams }: { teams: PlayerTeamStats[] }) {
   if (!teams.length) {
     return (
@@ -552,6 +649,7 @@ export default function Home() {
     {},
   );
   const [error, setError] = useState<string | null>(null);
+  const detailsRef = useRef<HTMLElement | null>(null);
 
   const events = board?.events ?? [];
   const odds = board?.odds ?? [];
@@ -611,13 +709,24 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadDetail(event: NflEvent) {
+  function scrollToMatchupCenter() {
+    window.setTimeout(() => {
+      detailsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+  }
+
+  async function loadDetail(event: NflEvent, shouldScroll = true) {
     if (details[event.id]) {
       setSelectedEvent(event);
+      if (shouldScroll) scrollToMatchupCenter();
       return details[event.id];
     }
 
     setSelectedEvent(event);
+    if (shouldScroll) scrollToMatchupCenter();
     setDetailLoading((current) => ({ ...current, [event.id]: true }));
 
     try {
@@ -628,7 +737,7 @@ export default function Home() {
       const data = (await response.json()) as GameDetail;
 
       if (!response.ok) {
-        throw new Error(data.error ?? "No se pudo cargar el box score");
+        throw new Error(data.error ?? "No se pudo cargar el detalle NFL");
       }
 
       setDetails((current) => ({ ...current, [event.id]: data }));
@@ -643,7 +752,7 @@ export default function Home() {
     setSelectedEvent(event);
 
     try {
-      const detail = details[event.id] ?? (await loadDetail(event));
+      const detail = details[event.id] ?? (await loadDetail(event, false));
       const competition = competitionOf(event);
       const matchedOdds = oddsForEvent(event, odds);
 
@@ -702,6 +811,14 @@ export default function Home() {
   const selectedInjuries = injuryRows(selectedDetail?.injuries ?? []);
   const latestWinProbability =
     selectedDetail?.winprobability?.at(-1)?.homeWinPercentage;
+  const predictorHome = selectedDetail?.predictor?.homeTeam?.gameProjection;
+  const predictorAway = selectedDetail?.predictor?.awayTeam?.gameProjection;
+  const selectedHome = selectedEvent
+    ? competitorOf(selectedEvent, "home")?.team?.abbreviation
+    : undefined;
+  const selectedAway = selectedEvent
+    ? competitorOf(selectedEvent, "away")?.team?.abbreviation
+    : undefined;
 
   return (
     <main className="min-h-screen bg-[#060a0d] text-slate-100">
@@ -921,7 +1038,10 @@ export default function Home() {
         )}
 
         {selectedEvent && (
-          <section className="mt-8 overflow-hidden rounded-3xl border border-white/10 bg-[#0c1318]">
+          <section
+            ref={detailsRef}
+            className="mt-8 scroll-mt-4 overflow-hidden rounded-3xl border border-white/10 bg-[#0c1318]"
+          >
             <div className="border-b border-white/10 bg-white/[0.025] p-5 sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -951,7 +1071,7 @@ export default function Home() {
                 <div className="h-52 animate-pulse rounded-2xl bg-white/5" />
               ) : selectedDetail ? (
                 <>
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <div className="detail-kpi">
                       <span>Sede</span>
                       <strong>
@@ -969,11 +1089,37 @@ export default function Home() {
                       </strong>
                     </div>
                     <div className="detail-kpi">
-                      <span>Prob. local en vivo</span>
+                      <span>
+                        {typeof latestWinProbability === "number"
+                          ? "Probabilidad local en vivo"
+                          : "Matchup Predictor ESPN"}
+                      </span>
                       <strong>
                         {typeof latestWinProbability === "number"
-                          ? (latestWinProbability * 100).toFixed(1) + "%"
-                          : "—"}
+                          ? (selectedHome ?? "HOME") +
+                            " " +
+                            (latestWinProbability * 100).toFixed(1) +
+                            "%"
+                          : predictorHome && predictorAway
+                            ? (selectedAway ?? "AWAY") +
+                              " " +
+                              predictorAway +
+                              "% · " +
+                              (selectedHome ?? "HOME") +
+                              " " +
+                              predictorHome +
+                              "%"
+                            : "—"}
+                      </strong>
+                    </div>
+                    <div className="detail-kpi">
+                      <span>Clima</span>
+                      <strong>
+                        {selectedDetail.gameInfo?.weather?.displayValue ??
+                          (typeof selectedDetail.gameInfo?.weather?.temperature ===
+                          "number"
+                            ? selectedDetail.gameInfo.weather.temperature + " °F"
+                            : "—")}
                       </strong>
                     </div>
                   </div>
@@ -996,7 +1142,16 @@ export default function Home() {
                   </div>
 
                   <div>
-                    <h3 className="section-title">Estadísticas de jugadores</h3>
+                    <h3 className="section-title">
+                      Líderes individuales de temporada
+                    </h3>
+                    <SeasonLeaders leaders={selectedDetail.leaders ?? []} />
+                  </div>
+
+                  <div>
+                    <h3 className="section-title">
+                      Box score individual del partido
+                    </h3>
                     <PlayerStats teams={selectedDetail.playerStats ?? []} />
                   </div>
 
