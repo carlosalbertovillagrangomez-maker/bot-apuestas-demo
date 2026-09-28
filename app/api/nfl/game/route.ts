@@ -73,6 +73,56 @@ function compactPlayers(teamEntry: JsonRecord) {
   };
 }
 
+function compactSeasonStats(teamId: string, payload: JsonRecord) {
+  const splits = (payload.splits ?? {}) as JsonRecord;
+  const categories = Array.isArray(splits.categories)
+    ? splits.categories
+    : [];
+
+  return {
+    teamId,
+    categories: categories.map((category) => {
+      const item = category as JsonRecord;
+      const stats = Array.isArray(item.stats) ? item.stats : [];
+
+      return {
+        name: item.name ?? null,
+        displayName: item.displayName ?? item.name ?? null,
+        stats: stats.map((stat) => {
+          const value = stat as JsonRecord;
+          return {
+            name: value.name ?? null,
+            displayName:
+              value.displayName ?? value.shortDisplayName ?? value.name ?? null,
+            abbreviation: value.abbreviation ?? null,
+            displayValue: value.displayValue ?? value.value ?? null,
+            rankDisplayValue: value.rankDisplayValue ?? null,
+          };
+        }),
+      };
+    }),
+  };
+}
+
+async function fetchSeasonStats(teamId: string, season: number) {
+  const endpoint =
+    "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/" +
+    season +
+    "/types/2/teams/" +
+    teamId +
+    "/statistics";
+
+  try {
+    const response = await fetch(endpoint, { cache: "no-store" });
+    if (!response.ok) return null;
+
+    const payload = (await response.json()) as JsonRecord;
+    return compactSeasonStats(teamId, payload);
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const eventId = searchParams.get("id");
@@ -99,6 +149,32 @@ export async function GET(request: Request) {
     const teamStats = Array.isArray(boxscore.teams) ? boxscore.teams : [];
     const playerStats = Array.isArray(boxscore.players) ? boxscore.players : [];
 
+    const header = (data.header ?? {}) as JsonRecord;
+    const seasonObject = (header.season ?? {}) as JsonRecord;
+    const seasonYear = Number(
+      seasonObject.year ?? new Date().getFullYear(),
+    );
+    const competitions = Array.isArray(header.competitions)
+      ? header.competitions
+      : [];
+    const firstCompetition = (competitions[0] ?? {}) as JsonRecord;
+    const competitors = Array.isArray(firstCompetition.competitors)
+      ? firstCompetition.competitors
+      : [];
+    const teamIds = competitors
+      .map((competitor) => {
+        const item = competitor as JsonRecord;
+        const team = (item.team ?? {}) as JsonRecord;
+        return String(team.id ?? "");
+      })
+      .filter(Boolean);
+
+    const seasonTeamStats = (
+      await Promise.all(
+        teamIds.map((teamId) => fetchSeasonStats(teamId, seasonYear)),
+      )
+    ).filter(Boolean);
+
     return NextResponse.json({
       header: data.header ?? null,
       gameInfo: data.gameInfo ?? null,
@@ -109,6 +185,7 @@ export async function GET(request: Request) {
       playerStats: playerStats.map((entry) =>
         compactPlayers(entry as JsonRecord),
       ),
+      seasonTeamStats,
       injuries: data.injuries ?? [],
       drives: data.drives ?? null,
       winprobability: data.winprobability ?? [],
