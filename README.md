@@ -7,6 +7,7 @@ Aplicación Next.js enfocada exclusivamente en football americano NFL.
 - Cartelera de la semana NFL.
 - Marcadores y estado de los partidos.
 - Récord general de cada equipo.
+- Estadísticas acumuladas de temporada por equipo, organizadas por categorías.
 - Navegación entre semanas de temporada regular.
 - Logos, sede y contexto del encuentro.
 - Moneyline, spread y total desde The Odds API.
