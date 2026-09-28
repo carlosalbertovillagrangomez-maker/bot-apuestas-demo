@@ -1,7 +1,19 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+
+type GeminiResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>;
+    };
+  }>;
+  error?: {
+    message?: string;
+    status?: string;
+    code?: number;
+  };
+};
 
 export async function POST(req: Request) {
   try {
@@ -27,10 +39,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL ?? "gemini-2.5-pro",
-    });
+    const model = process.env.GEMINI_MODEL ?? "gemini-3.1-pro-preview";
 
     const prompt = `
 Eres un analista cuantitativo especializado EXCLUSIVAMENTE en NFL.
@@ -95,15 +104,67 @@ Devuelve el análisis en español con esta estructura:
    aumentar la confianza del análisis.
 `;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        model,
+      )}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }],
+            },
+          ],
+        }),
+        cache: "no-store",
+      },
+    );
 
-    return NextResponse.json({
-      prediction: response.text(),
-      model: process.env.GEMINI_MODEL ?? "gemini-2.5-pro",
-    });
+    const data = (await response.json()) as GeminiResponse;
+
+    if (!response.ok) {
+      const providerMessage =
+        data.error?.message ??
+        `Gemini respondió con status ${response.status}`;
+
+      console.error("Error analizando partido NFL:", providerMessage);
+
+      return NextResponse.json(
+        {
+          error:
+            "Gemini no pudo completar el análisis. " + providerMessage,
+          model,
+        },
+        { status: response.status >= 400 ? response.status : 500 },
+      );
+    }
+
+    const prediction = (data.candidates ?? [])
+      .flatMap((candidate) => candidate.content?.parts ?? [])
+      .map((part) => part.text ?? "")
+      .join("")
+      .trim();
+
+    if (!prediction) {
+      return NextResponse.json(
+        {
+          error: "Gemini respondió sin texto para este análisis.",
+          model,
+        },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({ prediction, model });
   } catch (error) {
     console.error("Error analizando partido NFL:", error);
+
     return NextResponse.json(
       {
         error:
